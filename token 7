@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+contract TimeLockVault {
+    struct LockInfo {
+        uint256 amount;
+        uint256 releaseTime;
+        bool withdrawn;
+    }
+
+    // نگهداری اطلاعات قفل برای هر آدرس
+    mapping(address => LockInfo) public locks;
+
+    event Deposited(address indexed beneficiary, uint256 amount, uint256 releaseTime);
+    event Withdrawn(address indexed beneficiary, uint256 amount);
+
+    // واریز اتر و تعیین زمان آزاد شدن (مثلاً بلاک تایم فعلی بعلاوه ثانیه‌های دلخواه)
+    function deposit(uint256 _releaseTime) external payable {
+        require(msg.value > 0, "Amount must be greater than 0");
+        require(_releaseTime > block.timestamp, "Release time must be in the future");
+        require(locks[msg.sender].amount == 0, "Active lock already exists");
+
+        locks[msg.sender] = LockInfo({
+            amount: msg.value,
+            releaseTime: _releaseTime,
+            withdrawn: false
+        });
+
+        emit Deposited(msg.sender, msg.value, _releaseTime);
+    }
+
+    // برداشت دارایی پس از رسیدن زمان مقرر
+    function withdraw() external {
+        LockInfo storage lockInfo = locks[msg.sender];
+        require(lockInfo.amount > 0, "No locked funds found");
+        require(!lockInfo.withdrawn, "Funds already withdrawn");
+        require(block.timestamp >= lockInfo.releaseTime, "Lock time has not expired yet");
+
+        lockInfo.withdrawn = true;
+        uint256 amountToTransfer = lockInfo.amount;
+        lockInfo.amount = 0;
+
+        (bool success, ) = payable(msg.sender).call{value: amountToTransfer}("");
+        require(success, "Transfer failed");
+
+        emit Withdrawn(msg.sender, amountToTransfer);
+    }
+}
